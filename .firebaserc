@@ -1,0 +1,14 @@
+{
+  "targets": {
+    "datapoint-ca95e": {
+      "hosting": {
+        "datapoint-angular-api": [
+          "datapoint-ca95e"
+        ]
+      }
+    }
+  },
+  "projects": {
+    "default": "datapoint-ca95e"
+  }
+}
