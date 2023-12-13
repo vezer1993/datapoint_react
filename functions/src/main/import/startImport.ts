@@ -1,6 +1,10 @@
 import { lostImport } from "../../partners/lost/manager";
 import { alsoImport } from "../../partners/also/manager";
 import { jarltechImport } from "../../partners/jarltech/manager";
+import { logToFirestore } from "../integration/logs/logs";
+import { luceedImport } from "../../partners/luceed/manager";
+import { wandImport } from "../../partners/wand/manager";
+import { microlineImport } from "../../partners/microline/manager";
 
 
 export const startImport = async (data, companyID) => {
@@ -9,29 +13,111 @@ export const startImport = async (data, companyID) => {
         // Iterate through each key in the 'partners' map
         for (const [partnerKey, partnerValue] of Object.entries(data.partners)) {
             // Use a switch statement to handle different partner keys
-            switch (partnerKey) {
-                case 'lost':
-                    // Handle the 'lost' case
-                    console.log("Fetching LOST partner data:");
-                    await lostImport(partnerValue, companyID);
-                    break;
+            if (data.partners[partnerKey].on) {
+                switch (partnerKey) {
+                    case 'lost':
+                        try {
+                            await lostImport(partnerValue, companyID);
+                            await logToFirestore(companyID, "import", {
+                                success: true,
+                                message: "successfully imported data from the partner",
+                                partner: partnerKey
+                            });
+                        } catch (error) {
+                            await logToFirestore(companyID, "import", {
+                                success: false,
+                                message: error.message,
+                                partner: partnerKey
+                            });
+                        }
+                        break;
+                    case 'also':
+                        try {
+                            await alsoImport(partnerValue, companyID);
+                            await logToFirestore(companyID, "import", {
+                                success: true,
+                                message: "successfully imported data from the partner",
+                                partner: partnerKey
+                            });
+                        } catch (error) {
+                            await logToFirestore(companyID, "import", {
+                                success: false,
+                                message: error.message,
+                                partner: partnerKey
+                            });
+                        }
+                        break;
 
-                case 'also':
-                    // Handle the 'also' case
-                    console.log("Fetching ALSO partner data:");
-                    await alsoImport(partnerValue, companyID);
-                    break;
+                    case 'jarltech':
+                        try {
+                            await jarltechImport(partnerValue, companyID);
+                            await logToFirestore(companyID, "import", {
+                                success: true,
+                                message: "successfully imported data from the partner",
+                                partner: partnerKey
+                            });
+                        } catch (error) {
+                            await logToFirestore(companyID, "import", {
+                                success: false,
+                                message: error.message,
+                                partner: partnerKey
+                            });
+                        }
+                        break;
 
-                case 'jarltech':
-                    // Handle the 'jarltech' case
-                    console.log("FETCHING JARLTECH partner data:");
-                    await jarltechImport(partnerValue, companyID);
-                    break;
-
-                default:
-                    // Handle any other case
-                    console.log(`Unknown partner key: ${partnerKey}`);
+                    case 'luceed':
+                        try {
+                            await luceedImport(partnerValue, companyID);
+                            await logToFirestore(companyID, "import", {
+                                success: true,
+                                message: "successfully imported data from the partner",
+                                partner: partnerKey
+                            });
+                        } catch (error) {
+                            await logToFirestore(companyID, "import", {
+                                success: false,
+                                message: error.message,
+                                partner: partnerKey
+                            });
+                        }
+                        break;
+                    case 'wand':
+                        try {
+                            await wandImport(partnerValue, companyID);
+                            await logToFirestore(companyID, "import", {
+                                success: true,
+                                message: "successfully imported data from the partner",
+                                partner: partnerKey
+                            });
+                        } catch (error) {
+                            await logToFirestore(companyID, "import", {
+                                success: false,
+                                message: error.message,
+                                partner: partnerKey
+                            });
+                        }
+                        break;
+                    case 'microline':
+                        try {
+                            await microlineImport(partnerValue, companyID);
+                            await logToFirestore(companyID, "import", {
+                                success: true,
+                                message: "successfully imported data from the partner",
+                                partner: partnerKey
+                            });
+                        } catch (error) {
+                            await logToFirestore(companyID, "import", {
+                                success: false,
+                                message: error.message,
+                                partner: partnerKey
+                            });
+                        }
+                        break;
+                    default:
+                        // Handle any other case
+                        console.log(`Unknown partner key: ${partnerKey}`);
                     // Logic for any other or unknown partner keys
+                }
             }
         }
     }

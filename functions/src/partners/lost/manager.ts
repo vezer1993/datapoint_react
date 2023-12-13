@@ -1,12 +1,81 @@
 import fetch from 'node-fetch';
 import * as admin from 'firebase-admin';
+import { getFileFromStorage } from '../../main/integration/crud/db_crud';
+import { getProductsForPartner } from '../../main/integration/crud/db_crud';
+import { logToFirestore } from '../../main/integration/logs/logs';
+import { XMLParser } from "fast-xml-parser";
+
+
+const partnerName = "lost";
 
 export const lostImport = async (lostDocument, companyID) => {
     await getLostProductListAndSaveToStorage(lostDocument.source, "LOST", companyID);
-    //const dbProductList = prepareData(productList);
-    //await importProductList(companyID, "lost", dbProductList);
 }
 
+export const lostUpdate = async (lostDocument, companyID) => {
+    const lostXML = await getFileFromStorage(companyID, "LOST.xml");
+    if (lostXML != "") {
+        try {
+            const parser = new XMLParser();
+            const parsedXML = parser.parse(lostXML);
+            const querySnapshot = await getProductsForPartner(companyID, partnerName);
+
+            for (const doc of querySnapshot.docs) {
+                const product = doc.data();
+
+                const matchingXMLData = findMatchingDataInXML(parsedXML, product.remoteID);
+
+                if (matchingXMLData) {
+
+                    var price_base = product.price_base;
+                    var price_retail = product.price_retail;
+                    var price_store = product.price_store;
+                    var available = matchingXMLData.available;
+                    var quantity = (available === "Dostupno") ? 1 : 0;
+                    var synced = admin.firestore.Timestamp.now();
+
+                    let updateData: any = { available, quantity, synced };
+
+                    if (price_base != matchingXMLData.price || price_retail != matchingXMLData.vpc) {
+                        price_base = matchingXMLData.price;
+                        price_retail = matchingXMLData.vpc;
+                        price_store = +(price_retail + ((price_retail * product.margin) / 100)).toFixed(2)
+
+                        updateData.price_base = price_base;
+                        updateData.price_retail = price_retail;
+                        updateData.price_store = price_store;
+                    }
+
+
+                    await doc.ref.update(updateData);
+                    console.log(`Document with remoteID ${product.remoteID} updated.`);
+
+                } else {
+                    logToFirestore(companyID, "update", {
+                        success: false,
+                        message: 'Could not find the product with remoteID: ' + product.remoteID + ' in the ' + partnerName + ' source',
+                        partner: partnerName
+                    });
+                }
+            }
+
+        } catch (error) {
+            await logToFirestore(companyID, "update", {
+                success: false,
+                message: error.message,
+                partner: partnerName
+            });
+        }
+    } else {
+        await logToFirestore(companyID, "update", {
+            success: false,
+            message: "Error fetching file from storage",
+            partner: partnerName
+        });
+    }
+}
+
+//Save file to storage
 async function getLostProductListAndSaveToStorage(source, partner, companyID) {
     try {
         const response = await fetch(source, {
@@ -47,57 +116,8 @@ async function getLostProductListAndSaveToStorage(source, partner, companyID) {
     }
 }
 
-/*function prepareData(productList) {
-
-    const dbProductList = [];
-    
-    productList.forEach(product => {
-
-        var images = [];
-
-        images.push(product.image);
-
-        if(typeof product.images.item === 'string') {
-            images.push(product.images.item);
-        }else if(Object.prototype.toString.call(product.images.item) === '[object Array]'){
-            product.images.item.forEach(element => {
-                images.push(element);
-            });
-        }
-
-        var available = false;
-
-        if(product.available == "Dostupno"){
-            product.available = "1";
-            available = true;
-            
-        }else{
-            product.available = "0";
-        }
-
-        const prod: dbModel = {
-            name: product.product,
-            quantity: +product.available,
-            available: available,
-            category: [product.category],
-            parent_category: [product.category_parent],
-            ean: "",
-            remoteID: product.code,
-            price_base: product.price,
-            price_retail: product.vpc,
-            rebate: product.rabat,
-            description: product.specification,
-            brand: product.brand,
-            margin: 0,
-            pictures: images,
-            documents: [""],
-            warranty: product.warranty,
-            synced: ""
-        }
-
-        dbProductList.push(prod);
-    });
-
-    return dbProductList;
+//FIND PRODUCT IN THE SOURCE
+function findMatchingDataInXML(parsedXML, remoteID) {
+    const productArray = parsedXML.entries.entry;
+    return productArray.find(item => item.code === remoteID);
 }
-*/
