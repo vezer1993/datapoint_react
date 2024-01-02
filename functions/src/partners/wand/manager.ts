@@ -1,5 +1,8 @@
 import * as admin from 'firebase-admin';
-
+import * as fs from 'fs';
+import * as iconv from 'iconv-lite';
+import { getFileFromStorage, getProductsForPartner } from '../../main/integration/crud/db_crud';
+import { logToFirestore } from '../../main/integration/logs/logs';
 const ftp = require('ftp');
 const wandHeaders = [
     "RobaID",
@@ -68,6 +71,7 @@ const wandHeaders = [
     "KolicinaMax",
     "Opis"
 ];
+const partnerName = "wand";
 
 interface Product {
     [key: string]: string;
@@ -75,6 +79,86 @@ interface Product {
 
 export const wandImport = async (wandDocument, companyID) => {
     await fetchWandCatalog(wandDocument, "WAND", companyID);
+}
+
+export const wandUpdate = async (wandDocument, companyID) => {
+    const wandJSON = await getFileFromStorage(companyID, "WAND.json");
+    if (wandJSON != "") {
+        try {
+            const querySnapshot = await getProductsForPartner(companyID, partnerName);
+
+            for (const doc of querySnapshot.docs) {
+                const product = doc.data();
+                
+                const matchingData = findMatchingDataInJSON(wandJSON, product.remoteID);
+                if (matchingData) {
+
+                    var available = product.available;
+
+                    if (matchingData.raspolozivo == "D") {
+                        available = "Dostupno";
+
+                    } else {
+                        available = "Nedostupno";
+                    }
+
+                    var price_base = product.price_base;
+                    var price_retail = product.price_retail;
+                    var price_store = product.price_store;
+
+                    var quantity = +matchingData.Raspolozivo;
+                    var synced = admin.firestore.Timestamp.now();
+
+                    let updateData: any = { available, quantity, synced };
+
+                    if (price_base != matchingData.VPCijena || price_retail != matchingData.MPCijena) {
+                        price_base = matchingData.VPCijena;
+                        price_retail = matchingData.MPCijena;
+                        price_store = +price_retail;
+                        if(product.margin != 0){
+                            price_store = +(price_retail + ((price_retail * product.margin) / 100)).toFixed(2);
+                        }
+
+                        updateData.price_base = price_base;
+                        updateData.price_retail = price_retail;
+                        updateData.price_store = price_store;
+                    }
+
+                    updateData.description = matchingData.Opis;
+                    
+
+                    await doc.ref.update(updateData);
+                    
+                    console.log(`Document with remoteID ${product.remoteID} updated.`);
+
+                } else {
+                    logToFirestore(companyID, "update", {
+                        success: false,
+                        message: 'Could not find the product with remoteID: ' + product.remoteID + ' in the ' + partnerName + ' source',
+                        partner: partnerName
+                    });
+                }
+            }
+
+        } catch (error) {
+            await logToFirestore(companyID, "update", {
+                success: false,
+                message: error.message,
+                partner: partnerName
+            });
+        }
+    } else {
+        await logToFirestore(companyID, "update", {
+            success: false,
+            message: "Error fetching file from storage",
+            partner: partnerName
+        });
+    }
+}
+
+function findMatchingDataInJSON(json, remoteID) {
+    const productArray = JSON.parse(json);
+    return productArray.find(item => item.RobaID === remoteID);
 }
 
 async function fetchWandCatalog(wandDocument, partner, companyID) {
@@ -86,7 +170,7 @@ async function fetchWandCatalog(wandDocument, partner, companyID) {
             wandDocument.katalog_path
         );
 
-        const text = await streamToString(stream);
+        const text = await streamToUtf8String(stream, "CP1252");
         const dataBlocks = extractDataBlocks(text);
         const allProducts = splitProductBlocks(dataBlocks);
         const jsonArray = createJsonArray(allProducts, wandHeaders);
@@ -118,7 +202,7 @@ async function uploadJsonToFirebase(jsonString: string, destinationPath: string)
 
 
 async function fetchFileFromFTP(host, username, password, ftpPath) {
-    return new Promise((resolve, reject) => {
+    return new Promise<fs.ReadStream>((resolve, reject) => {
         const client = new ftp();
 
         client.on('ready', () => {
@@ -142,12 +226,24 @@ async function fetchFileFromFTP(host, username, password, ftpPath) {
     });
 }
 
-async function streamToString(stream): Promise<string> {
+async function streamToUtf8String(stream, originalEncoding): Promise<string> {
     const chunks = [];
-    return new Promise((resolve, reject) => {
+    return new Promise<string>((resolve, reject) => {
         stream.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
         stream.on('error', (err) => reject(err));
-        stream.on('end', () => resolve(Buffer.concat(chunks).toString('latin1')));
+        stream.on('end', () => {
+            const buffer = Buffer.concat(chunks);
+            // Convert the buffer from original encoding to UTF-8
+            const utf8String = iconv.decode(buffer, originalEncoding);
+            let resultString = utf8String
+                .replace(/è/g, 'č')
+                .replace(/È/g, 'Č')
+                .replace(/æ/g, 'ć')
+                .replace(/Æ/g, 'Ć')
+                .replace(/ð/g, 'đ')
+                .replace(/Ð/g, 'Đ');
+            resolve(resultString);
+        });
     });
 }
 

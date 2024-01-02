@@ -2,6 +2,7 @@ import { lostUpdate } from "../../partners/lost/manager";
 import { alsoUpdate } from "../../partners/also/manager";
 import { logToFirestore } from "../integration/logs/logs";
 import { jarltechUpdate } from "../../partners/jarltech/manager";
+import { wandUpdate } from "../../partners/wand/manager";
 
 
 export const startUpdate = async (data, companyID) => {
@@ -11,6 +12,7 @@ export const startUpdate = async (data, companyID) => {
         for (const [partnerKey, partnerValue] of Object.entries(data.partners)) {
             // Use a switch statement to handle different partner keys
             if (data.partners[partnerKey].on) {
+                console.log("STARTING UPDATE OF: " + partnerKey);
                 switch (partnerKey) {
                     case 'lost':
                         try {
@@ -47,6 +49,22 @@ export const startUpdate = async (data, companyID) => {
                     case 'jarltech':
                         try {
                             await jarltechUpdate(partnerValue, companyID);
+                            await logToFirestore(companyID, "update", {
+                                success: true,
+                                message: "successfully updated data from the partner",
+                                partner: partnerKey
+                            });
+                        } catch (error) {
+                            await logToFirestore(companyID, "update", {
+                                success: false,
+                                message: error.message,
+                                partner: partnerKey
+                            });
+                        }
+                        break;
+                    case 'wand':
+                        try {
+                            await wandUpdate(partnerValue, companyID);
                             await logToFirestore(companyID, "update", {
                                 success: true,
                                 message: "successfully updated data from the partner",
